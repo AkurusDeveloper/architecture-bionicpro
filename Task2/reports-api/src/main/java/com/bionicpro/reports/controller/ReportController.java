@@ -78,6 +78,26 @@ public class ReportController {
         return ResponseEntity.ok(report);
     }
 
+    @GetMapping("/download")
+    public ResponseEntity<String> downloadReport(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam String userId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo) {
+        
+        log.info("User {} (JWT sub: {}) requested CSV download for userId {} from {} to {}", 
+            jwt.getClaim("preferred_username"), jwt.getSubject(), userId, dateFrom, dateTo);
+        
+        ReportResponse report = reportService.getUserReport(userId, dateFrom, dateTo);
+        String csvContent = CsvUtil.toCsv(report);
+        
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, 
+                "attachment; filename=report_" + userId + "_" + dateFrom + "_" + dateTo + ".csv")
+            .contentType(MediaType.valueOf("text/csv"))
+            .body(csvContent);
+    }
+
     @GetMapping("/health")
     public ResponseEntity<String> health() {
         return ResponseEntity.ok("Reports API is running");

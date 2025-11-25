@@ -34,7 +34,7 @@ extract_crm = DockerOperator(
     auto_remove=True,
     command='java -jar /app/etl-java.jar --job=extractCrmJob --date={{ ds }}',
     docker_url='unix://var/run/docker.sock',
-    network_mode='bridge',
+    network_mode='task2_bionicpro-network',
     environment={
         'CRM_API_URL': '{{ var.value.crm_api_url }}',
         'CLICKHOUSE_HOST': '{{ var.value.clickhouse_host }}',
@@ -50,7 +50,7 @@ extract_telemetry = DockerOperator(
     auto_remove=True,
     command='java -jar /app/etl-java.jar --job=extractTelemetryJob --date={{ ds }}',
     docker_url='unix://var/run/docker.sock',
-    network_mode='bridge',
+    network_mode='task2_bionicpro-network',
     environment={
         'CORE_DB_HOST': '{{ var.value.core_db_host }}',
         'CORE_DB_PORT': '{{ var.value.core_db_port }}',
@@ -67,7 +67,7 @@ build_mart = DockerOperator(
     auto_remove=True,
     command='java -jar /app/etl-java.jar --job=buildMartJob --date={{ ds }}',
     docker_url='unix://var/run/docker.sock',
-    network_mode='bridge',
+    network_mode='task2_bionicpro-network',
     environment={
         'CLICKHOUSE_HOST': '{{ var.value.clickhouse_host }}',
         'CLICKHOUSE_PORT': '{{ var.value.clickhouse_port }}',

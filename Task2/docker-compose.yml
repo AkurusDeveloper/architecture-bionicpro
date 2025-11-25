@@ -151,7 +151,9 @@ services:
       - bionicpro-network
 
   airflow-scheduler:
-    image: apache/airflow:2.8.0-python3.11
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
     container_name: bionicpro-airflow-scheduler
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
