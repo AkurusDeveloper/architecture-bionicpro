@@ -34,8 +34,12 @@ public class ReportController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
             @RequestParam(defaultValue = "json") String format) {
         
-        String userId = jwt.getSubject();
-        log.info("User {} requested report from {} to {} in format {}", userId, dateFrom, dateTo, format);
+        String userId = jwt.getClaimAsString("preferred_username");
+        if (userId == null || userId.isEmpty()) {
+            userId = jwt.getSubject();
+        }
+        log.info("User {} (JWT sub: {}) requested report from {} to {} in format {}", 
+            userId, jwt.getSubject(), dateFrom, dateTo, format);
         
         ReportResponse report = reportService.getUserReport(userId, dateFrom, dateTo);
         

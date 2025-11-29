@@ -7,12 +7,11 @@ import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
-
-import javax.sql.DataSource;
 
 @Configuration
 @RequiredArgsConstructor
@@ -30,7 +29,7 @@ public class BatchConfiguration {
     }
 
     @Bean
-    public Step buildMartStep(JdbcTemplate clickhouseTemplate) {
+    public Step buildMartStep(@Qualifier("clickhouseJdbcTemplate") JdbcTemplate clickhouseTemplate) {
         return new StepBuilder("buildMartStep", jobRepository)
                 .tasklet((contribution, chunkContext) -> {
                     
@@ -87,7 +86,7 @@ public class BatchConfiguration {
     }
 
     @Bean
-    public Step extractCrmStep(JdbcTemplate clickhouseTemplate) {
+    public Step extractCrmStep(@Qualifier("clickhouseJdbcTemplate") JdbcTemplate clickhouseTemplate) {
         return new StepBuilder("extractCrmStep", jobRepository)
                 .tasklet((contribution, chunkContext) -> {
                     
@@ -114,7 +113,8 @@ public class BatchConfiguration {
     }
 
     @Bean
-    public Step extractTelemetryStep(JdbcTemplate coreDbTemplate, JdbcTemplate clickhouseTemplate) {
+    public Step extractTelemetryStep(@Qualifier("coreDbJdbcTemplate") JdbcTemplate coreDbTemplate, 
+                                      @Qualifier("clickhouseJdbcTemplate") JdbcTemplate clickhouseTemplate) {
         return new StepBuilder("extractTelemetryStep", jobRepository)
                 .tasklet((contribution, chunkContext) -> {
                     
@@ -130,16 +130,6 @@ public class BatchConfiguration {
                     return org.springframework.batch.repeat.RepeatStatus.FINISHED;
                 }, transactionManager)
                 .build();
-    }
-
-    @Bean
-    public JdbcTemplate clickhouseTemplate(DataSource dataSource) {
-        return new JdbcTemplate(dataSource);
-    }
-
-    @Bean
-    public JdbcTemplate coreDbTemplate() {
-        return new JdbcTemplate();
     }
 
 }

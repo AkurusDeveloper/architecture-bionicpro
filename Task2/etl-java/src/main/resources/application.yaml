@@ -7,18 +7,25 @@ spring:
       enabled: false
     jdbc:
       initialize-schema: always
+      table-prefix: BATCH_
+    datasource:
+      # Использовать PostgreSQL для метаданных Spring Batch
+      url: ${SPRING_BATCH_DATASOURCE_URL:jdbc:postgresql://postgres-core:5432/bionicpro_core}
+      username: ${SPRING_BATCH_DATASOURCE_USERNAME:bionicpro}
+      password: ${SPRING_BATCH_DATASOURCE_PASSWORD:bionicpro123}
+      driver-class-name: org.postgresql.Driver
 
   datasource:
     core-db:
-      jdbc-url: jdbc:postgresql://${CORE_DB_HOST:localhost}:${CORE_DB_PORT:5432}/bionicpro_core
-      username: ${CORE_DB_USER:postgres}
-      password: ${CORE_DB_PASSWORD:postgres}
+      url: ${SPRING_DATASOURCE_COREDB_URL:jdbc:postgresql://postgres-core:5432/bionicpro_core}
+      username: ${SPRING_DATASOURCE_COREDB_USERNAME:bionicpro}
+      password: ${SPRING_DATASOURCE_COREDB_PASSWORD:bionicpro123}
       driver-class-name: org.postgresql.Driver
     
     clickhouse:
-      jdbc-url: jdbc:clickhouse://${CLICKHOUSE_HOST:localhost}:${CLICKHOUSE_PORT:8123}/bionicpro
-      username: ${CLICKHOUSE_USER:default}
-      password: ${CLICKHOUSE_PASSWORD:}
+      url: ${SPRING_DATASOURCE_CLICKHOUSE_URL:jdbc:clickhouse://bionicpro-clickhouse:8123/default}
+      username: ${SPRING_DATASOURCE_CLICKHOUSE_USERNAME:default}
+      password: ${SPRING_DATASOURCE_CLICKHOUSE_PASSWORD:}
       driver-class-name: com.clickhouse.jdbc.ClickHouseDriver
 
 crm:

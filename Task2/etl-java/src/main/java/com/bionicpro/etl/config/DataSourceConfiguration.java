@@ -16,13 +16,27 @@ public class DataSourceConfiguration {
 
     @Bean
     @Primary
+    @ConfigurationProperties("spring.batch.datasource")
+    public DataSourceProperties batchDataSourceProperties() {
+        return new DataSourceProperties();
+    }
+
+    @Bean
+    @Primary
+    @ConfigurationProperties("spring.batch.datasource.configuration")
+    public DataSource batchDataSource(@Qualifier("batchDataSourceProperties") DataSourceProperties properties) {
+        return properties.initializeDataSourceBuilder()
+                .type(HikariDataSource.class)
+                .build();
+    }
+
+    @Bean
     @ConfigurationProperties("spring.datasource.clickhouse")
     public DataSourceProperties clickhouseDataSourceProperties() {
         return new DataSourceProperties();
     }
 
     @Bean
-    @Primary
     @ConfigurationProperties("spring.datasource.clickhouse.configuration")
     public DataSource clickhouseDataSource(@Qualifier("clickhouseDataSourceProperties") DataSourceProperties properties) {
         return properties.initializeDataSourceBuilder()
@@ -31,7 +45,6 @@ public class DataSourceConfiguration {
     }
 
     @Bean
-    @Primary
     public JdbcTemplate clickhouseJdbcTemplate(@Qualifier("clickhouseDataSource") DataSource dataSource) {
         return new JdbcTemplate(dataSource);
     }

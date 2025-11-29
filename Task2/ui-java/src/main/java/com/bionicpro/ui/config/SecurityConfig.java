@@ -24,13 +24,12 @@ public class SecurityConfig {
                                           OAuth2AuthorizationRequestResolver pkceResolver) throws Exception {
         http
             .authorizeHttpRequests(authz -> authz
-                .requestMatchers("/", "/login", "/error", "/css/**", "/js/**", "/images/**").permitAll()
+                .requestMatchers("/", "/error", "/css/**", "/js/**", "/images/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
                 
                 .anyRequest().authenticated())
             
             .oauth2Login(oauth2 -> oauth2
-                .loginPage("/login")
                 .defaultSuccessUrl("/reports", true)
                 .authorizationEndpoint(authorization -> authorization
                     .authorizationRequestResolver(pkceResolver)))
@@ -39,7 +38,8 @@ public class SecurityConfig {
                 .logoutUrl("/logout")
                 .logoutSuccessUrl("/")
                 .invalidateHttpSession(true)
-                .deleteCookies("JSESSIONID"));
+                .deleteCookies("JSESSIONID")
+                .clearAuthentication(true));
         
         return http.build();
     }

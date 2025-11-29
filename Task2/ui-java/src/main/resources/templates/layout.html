@@ -42,7 +42,7 @@
                     
                     <form sec:authorize="isAuthenticated()" 
                           method="post" 
-                          action="/logout" 
+                          th:action="@{/logout}" 
                           class="inline">
                         <button type="submit" 
                                 class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">

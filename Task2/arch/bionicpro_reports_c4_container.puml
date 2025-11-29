@@ -1,96 +1,76 @@
 @startuml
-!include ../../libs/C4-PlantUML/C4_Container.puml
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
 
-title Сервис отчётов BionicPRO — Архитектура ETL и аналитики на Java
+LAYOUT_LEFT_RIGHT()
 
-Person(user, "Пользователь протеза", "Владелец протеза BionicPRO")
-Person(admin, "Администратор", "Управляет системой отчётности")
-Person_Ext(ml_engineer, "ML-инженер", "Анализирует данные телеметрии")
+Person_Ext(bankAF, "АФ-системы банков/ПС", "Отправляют события и запрашивают скоринг/справки")
+Person_Ext(regAnalyst, "Аналитик/регулятор", "Использует отчёты и UI ЦАФ")
+Person_Ext(cafOps, "Оператор ЦАФ", "Следит за состоянием, настраивает правила")
 
-System_Boundary(bionicpro, "Система отчётов BionicPRO") {
+System_Boundary(caf, "ЦАФ Платформа") {
 
-  Container_Boundary(etl_boundary, "Конвейер ETL (Java)") {
-    Container(etl_java, "Сервис ETL", "Java, Spring Batch", "Извлечение/Преобразование/Загрузка данных из источников в ClickHouse")
-    Container(airflow, "Оркестратор Airflow", "Apache Airflow (обёртка Python)", "Оркестрация ETL-задач по расписанию (каждый час)")
+  Container(gw, "API Gateway & Security", "Reverse proxy / mTLS / Auth / Rate limiting", "Единая точка входа: аутентификация, авторизация, квоты, аудит")
+  Container(tokenSvc, "Сервис токенизации K1", "Service", "Псевдонимизация и нормализация идентификаторов (K1)")
+  Container(kafka, "Streaming Bus", "Kafka / AMQP", "Внутренняя шина событий ЦАФ (транзакции, сессии, кейсы, вердикты)")
+
+  ' ===== Встроенная платформа AFD как ядро realtime-аналитики =====
+  System_Boundary(afd, "Платформа AFD (внутри ЦАФ)") {
+
+    Container(afdEea, "afd-eea", "Extended Rule Engine Async", "Приём событий от процессингов/ДБО, обогащение, маршрутизация, формирование ответа")
+    Container(afdAaa, "afd-aaa", "Advanced Adaptive Authentication", "ML-скоринг, локальные поведенческие профили (Ignite), предикторы, SFN-анализ")
+    Container(afdAaap, "afd-aaap", "AAA Policy", "Бизнес-правила и политики, A/B тесты, Groovy/SQL правила")
+    Container(afdDbSaver, "afd-db-saver", "DB Saver / Event Storage", "Асинхронное сохранение событий/профилей, экспорт в БД и Kafka (Chronicle Queue, приоритеты, failover)")
+    Container(afdUi, "afd-ui", "AFD UI", "Кейс-менеджмент, управление правилами, отчёты для операторов AFD")
   }
 
-  Container_Boundary(api_boundary, "API отчётов") {
-    Container(reports_api, "API отчётов", "Java, Spring Boot 3", "REST API для получения отчётов пользователей")
-    Container(security, "Слой безопасности", "Spring Security + OAuth2", "Валидация JWT, контроль доступа по user_id")
-  }
-
-  Container_Boundary(ui_boundary, "Пользовательский интерфейс") {
-    Container(ui_java, "UI отчётов", "Spring MVC + Thymeleaf", "Веб-интерфейс для запроса отчётов")
-  }
-
-  ContainerDb(clickhouse, "OLAP ClickHouse", "ClickHouse", "Витрина mart_report_user_daily с агрегированными метриками")
+  ' ===== Глобальный слой ЦАФ поверх AFD =====
+  Container(profileStore, "CAF Profile & Feature Store", "KV / Column DB", "Межбанковские профили и фичи по global K1 (агрегация поверх событий/результатов AFD и других источников)")
+  Container(graphStore, "CAF Graph Store", "Graph DB / KV", "Граф сущностей (клиенты, счета, устройства, IP) в разрезе всех участников")
+  Container(graphAnalytics, "CAF Graph Analytics", "Batch/Stream jobs", "Кластеры (Louvain/Label Prop), PageRank, Betweenness, графовые фичи")
+  Container(dwh, "CAF DWH / Data Lake", "Column DB / Object Storage", "Историческое хранилище ЦАФ, межбанковская аналитика и витрины")
+  Container(reporting, "CAF Reporting & BI API", "Service", "Отчётность для участников и регулятора, глобальные дашборды")
+  Container(ui, "CAF Web Console", "Web UI", "Глобальный UI ЦАФ: отчёты по рынку, графы, конфигурация ЦАФ")
+  Container(mon, "Monitoring & Observability", "Prometheus / ELK / etc.", "Метрики, логи, трассировки, алерты по всей платформе")
 }
 
-System_Ext(crm, "Система CRM", "Bitrix24 / Oracle DB", "Данные о пользователях, договорах, заказах")
-System_Ext(core_db, "Основная БД", "PostgreSQL", "Телеметрия протезов, события пользователей")
-System_Ext(keycloak, "IdP Keycloak", "Провайдер идентификации", "Аутентификация пользователей, выдача JWT токенов")
-System_Ext(frontend, "Существующий фронтенд", "React (опционально)", "Основной фронтенд приложения")
+' Внешний трафик в ЦАФ
+Rel(bankAF, gw, "Запросы скоринга,\nонлайн-справки, отправка событий", "mTLS gRPC/HTTP2, Kafka/AMQP")
 
-' Поток ETL
-Rel(airflow, etl_java, "Запускает по расписанию", "docker run / java -jar")
-Rel(etl_java, crm, "Извлекает данные CRM", "REST API / JDBC")
-Rel(etl_java, core_db, "Извлекает телеметрию", "JDBC / REST")
-Rel(etl_java, clickhouse, "Загружает витрину", "ClickHouse JDBC")
+' Токенизация
+Rel(gw, tokenSvc, "Нормализация/токенизация K1\n(если банк шлёт сырые идентификаторы)", "gRPC/HTTP")
+Rel(tokenSvc, afdEea, "Передача уже токенизированных\nK1/K2 в AFD", "internal call")
 
-' Поток API отчётов
-Rel(user, ui_java, "Запрашивает отчёт", "HTTPS")
-Rel(user, frontend, "Альтернативный UI", "HTTPS (если есть)")
-Rel(ui_java, reports_api, "GET /reports/me", "REST + JWT")
-Rel(frontend, reports_api, "GET /reports/me", "REST + JWT")
-Rel(reports_api, security, "Проверяет JWT", "Spring Security")
-Rel(security, keycloak, "Валидация токена", "JWKS endpoint")
-Rel(reports_api, clickhouse, "Читает витрину", "ClickHouse JDBC")
+' Взаимодействие GW с AFD
+Rel(gw, afdEea, "Проксирует онлайн-запросы\nскоринга и события", "gRPC/HTTP, ISO8583/TCP")
 
-' Поток администратора
-Rel(admin, reports_api, "GET /reports?userId=...", "Доступ администратора")
+' Внутри AFD
+Rel(afdEea, afdAaa, "Передаёт обогащённые события\nна ML-скоринг и локальные профили AAA", "async/sync RPC")
+Rel(afdAaa, afdAaap, "Передаёт события и скоринг\nв движок правил", "RPC")
+Rel(afdAaap, afdAaa, "Возвращает политику/решение\n(ALLOW/DENY/CHALLENGE)", "RPC result")
+Rel(afdAaa, afdDbSaver, "Отправляет события, профили и результаты\nв подсистему персистентности", "async")
 
-' Поток ML-инженера
-Rel(ml_engineer, clickhouse, "Анализ данных", "SQL / JDBC")
+' afd-db-saver → шина ЦАФ
+Rel(afdDbSaver, kafka, "Публикует нормализованные события,\nрешения, кейсы в шину ЦАФ (EVENT/RESOLUTION/RULES/...)", "topics")
 
-' Примечания по потоку данных
-note right of etl_java
-  **Этапы ETL (Spring Batch):**
-  1. Извлечение пользователей CRM
-  2. Извлечение событий телеметрии
-  3. Преобразование и объединение данных
-  4. Агрегация по пользователю/дате
-  5. Загрузка в mart_report_user_daily
-end note
+' Глобальный слой ЦАФ поверх AFD
+Rel(kafka, profileStore, "Стрим событий и решений\nдля расчёта глобальных профилей по K1", "stream")
+Rel(kafka, graphStore, "Стрим событий для построения\nрёбер/вершин межбанковского графа", "stream")
 
-note right of reports_api
-  **Безопасность:**
-  - OAuth2 Resource Server
-  - Валидация JWT (издатель Keycloak)
-  - user_id из JWT sub claim
-  - Фильтрация по региону/арендатору
-end note
+Rel(graphAnalytics, graphStore, "Читает граф, считает\nкластеры и центральности", "batch")
+Rel(graphAnalytics, profileStore, "Записывает графовые фичи\nдля entity-risk и глобального скоринга", "write")
 
-note right of clickhouse
-  **mart_report_user_daily:**
-  - user_id, date, metrics[]
-  - Разделена по месяцам
-  - Индексирована по (user_id, date)
-  - Предварительно агрегированные данные
-end note
+Rel(profileStore, dwh, "Сливает агрегаты и фичи\nв аналитические витрины", "batch")
+Rel(kafka, dwh, "Загрузка сырых событий/результатов\nв DWH ЦАФ (ETL/stream)", "batch/stream")
 
-' DAG Airflow
-note left of airflow
-  **DAG: reports_etl_dag**
-  Расписание: @hourly (каждый час)
-  Задачи:
-  1. extract_crm_java
-  2. extract_telemetry_java
-  3. load_and_aggregate_java
-  4. optimize_clickhouse
-end note
+Rel(reporting, dwh, "Читает глобальные витрины\nдля отчётности", "read")
+Rel(regAnalyst, ui, "Смотрит глобальные отчёты и графы", "HTTPS")
+Rel(ui, reporting, "Запрашивает отчёты,\nвыгрузки, drill-down", "HTTPS")
 
-SHOW_LEGEND()
+Rel(afdUi, afdAaap, "Управление правилами,\nпросмотр статистики", "HTTP")
+Rel(afdUi, afdDbSaver, "Просмотр кейсов и событий\n(через БД/хранилища AFD)", "SQL/API")
+
+' Мониторинг
+Rel(caf, mon, "Метрики, логи,\nтрейсы из сервисов ЦАФ и AFD", "metrics/logs")
+Rel(mon, cafOps, "Алерты, дашборды,\nтехнический мониторинг", "UI/Alerting")
+
 @enduml
-
-
-

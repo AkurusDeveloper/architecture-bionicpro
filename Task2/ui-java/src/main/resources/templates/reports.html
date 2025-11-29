@@ -19,7 +19,7 @@
                         👤 <span th:text="${username}">User</span>
                     </span>
                     
-                    <form method="post" action="/logout" class="inline">
+                    <form method="post" th:action="@{/logout}" class="inline">
                         <button type="submit" 
                                 class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">
                             Выйти

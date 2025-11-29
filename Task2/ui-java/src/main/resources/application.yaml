@@ -34,11 +34,13 @@ spring:
             client-name: BionicPRO UI
         provider:
           keycloak:
-            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/reports-realm}
-            authorization-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/reports-realm}/protocol/openid-connect/auth
-            token-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/reports-realm}/protocol/openid-connect/token
-            user-info-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/reports-realm}/protocol/openid-connect/userinfo
-            jwk-set-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/reports-realm}/protocol/openid-connect/certs
+            # issuer-uri не указываем, т.к. все endpoints указаны явно
+            # Это предотвратит использование discovery endpoint и проблему с валидацией issuer
+            authorization-uri: ${KEYCLOAK_AUTHORIZATION_URI:http://localhost:8080/realms/reports-realm/protocol/openid-connect/auth}
+            token-uri: ${KEYCLOAK_TOKEN_URI:http://keycloak:8080/realms/reports-realm/protocol/openid-connect/token}
+            # user-info-uri не указываем - используем информацию из ID token
+            # user-info-uri: ${KEYCLOAK_USERINFO_URI:http://keycloak:8080/realms/reports-realm/protocol/openid-connect/userinfo}
+            jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://keycloak:8080/realms/reports-realm/protocol/openid-connect/certs}
             user-name-attribute: preferred_username
 
 bionicpro:

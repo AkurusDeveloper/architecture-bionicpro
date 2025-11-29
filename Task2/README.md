@@ -21,9 +21,14 @@
 ### DAGs http://localhost:8091/home
 ![img_5.png](img_5.png)
 ![img_7.png](img_7.png)
+### AIRFLOW
+![img_8.png](img_8.png)
 ### Выгрузка
 curl -H "Authorization: Bearer $TOKEN" \
 "http://localhost:8090/api/reports/download?userId=user-001&dateFrom=2025-11-19&dateTo=2025-11-25" \
 -o report.csv
 
 ![img_6.png](img_6.png)
+
+### Отчет
+![img_9.png](img_9.png)

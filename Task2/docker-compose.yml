@@ -25,10 +25,11 @@ services:
       - "5434:5432"
     environment:
       POSTGRES_DB: bionicpro_core
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: bionicpro
+      POSTGRES_PASSWORD: bionicpro123
     volumes:
       - postgres-core-data:/var/lib/postgresql/data
+      - ./olap/seed/init_postgres_core.sql:/docker-entrypoint-initdb.d/01_init.sql
     networks:
       - bionicpro-network
 
@@ -94,7 +95,11 @@ services:
       - "8085:8085"
     environment:
       KEYCLOAK_CLIENT_ID: bionicpro-ui
-      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/reports-realm
+      KEYCLOAK_ISSUER_URI: http://localhost:8080/realms/reports-realm
+      KEYCLOAK_AUTHORIZATION_URI: http://localhost:8080/realms/reports-realm/protocol/openid-connect/auth
+      KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/reports-realm/protocol/openid-connect/token
+      KEYCLOAK_USERINFO_URI: http://keycloak:8080/realms/reports-realm/protocol/openid-connect/userinfo
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/reports-realm/protocol/openid-connect/certs
       REPORTS_API_URL: http://reports-api:8090/api
     depends_on:
       - keycloak

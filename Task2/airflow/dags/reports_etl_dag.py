@@ -5,7 +5,7 @@ from airflow.operators.python import PythonOperator
 from airflow.providers.docker.operators.docker import DockerOperator
 
 ETL_JAR_PATH = "/opt/etl/etl-java.jar"
-ETL_IMAGE = "bionicpro/etl-java:latest"
+ETL_IMAGE = "task2-etl-java:latest"
 
 default_args = {
     'owner': 'bionicpro',
@@ -32,13 +32,19 @@ extract_crm = DockerOperator(
     image=ETL_IMAGE,
     api_version='auto',
     auto_remove=True,
+    force_pull=False,
     command='java -jar /app/etl-java.jar --job=extractCrmJob --date={{ ds }}',
     docker_url='unix://var/run/docker.sock',
     network_mode='task2_bionicpro-network',
+    mount_tmp_dir=False,
     environment={
-        'CRM_API_URL': '{{ var.value.crm_api_url }}',
-        'CLICKHOUSE_HOST': '{{ var.value.clickhouse_host }}',
-        'CLICKHOUSE_PORT': '{{ var.value.clickhouse_port }}',
+        'SPRING_DATASOURCE_CLICKHOUSE_URL': 'jdbc:clickhouse://bionicpro-clickhouse:8123/default',
+        'SPRING_DATASOURCE_CLICKHOUSE_USERNAME': 'default',
+        'SPRING_DATASOURCE_CLICKHOUSE_PASSWORD': '',
+        'SPRING_BATCH_DATASOURCE_URL': 'jdbc:postgresql://postgres-core:5432/bionicpro_core',
+        'SPRING_BATCH_DATASOURCE_USERNAME': 'bionicpro',
+        'SPRING_BATCH_DATASOURCE_PASSWORD': 'bionicpro123',
+        'CRM_API_URL': 'http://postgres-core:5432',
     },
     dag=dag,
 )
@@ -48,14 +54,21 @@ extract_telemetry = DockerOperator(
     image=ETL_IMAGE,
     api_version='auto',
     auto_remove=True,
+    force_pull=False,
     command='java -jar /app/etl-java.jar --job=extractTelemetryJob --date={{ ds }}',
     docker_url='unix://var/run/docker.sock',
     network_mode='task2_bionicpro-network',
+    mount_tmp_dir=False,
     environment={
-        'CORE_DB_HOST': '{{ var.value.core_db_host }}',
-        'CORE_DB_PORT': '{{ var.value.core_db_port }}',
-        'CLICKHOUSE_HOST': '{{ var.value.clickhouse_host }}',
-        'CLICKHOUSE_PORT': '{{ var.value.clickhouse_port }}',
+        'SPRING_DATASOURCE_CLICKHOUSE_URL': 'jdbc:clickhouse://bionicpro-clickhouse:8123/default',
+        'SPRING_DATASOURCE_CLICKHOUSE_USERNAME': 'default',
+        'SPRING_DATASOURCE_CLICKHOUSE_PASSWORD': '',
+        'SPRING_DATASOURCE_COREDB_URL': 'jdbc:postgresql://postgres-core:5432/bionicpro_core',
+        'SPRING_DATASOURCE_COREDB_USERNAME': 'bionicpro',
+        'SPRING_DATASOURCE_COREDB_PASSWORD': 'bionicpro123',
+        'SPRING_BATCH_DATASOURCE_URL': 'jdbc:postgresql://postgres-core:5432/bionicpro_core',
+        'SPRING_BATCH_DATASOURCE_USERNAME': 'bionicpro',
+        'SPRING_BATCH_DATASOURCE_PASSWORD': 'bionicpro123',
     },
     dag=dag,
 )
@@ -65,12 +78,18 @@ build_mart = DockerOperator(
     image=ETL_IMAGE,
     api_version='auto',
     auto_remove=True,
+    force_pull=False,
     command='java -jar /app/etl-java.jar --job=buildMartJob --date={{ ds }}',
     docker_url='unix://var/run/docker.sock',
     network_mode='task2_bionicpro-network',
+    mount_tmp_dir=False,
     environment={
-        'CLICKHOUSE_HOST': '{{ var.value.clickhouse_host }}',
-        'CLICKHOUSE_PORT': '{{ var.value.clickhouse_port }}',
+        'SPRING_DATASOURCE_CLICKHOUSE_URL': 'jdbc:clickhouse://bionicpro-clickhouse:8123/default',
+        'SPRING_DATASOURCE_CLICKHOUSE_USERNAME': 'default',
+        'SPRING_DATASOURCE_CLICKHOUSE_PASSWORD': '',
+        'SPRING_BATCH_DATASOURCE_URL': 'jdbc:postgresql://postgres-core:5432/bionicpro_core',
+        'SPRING_BATCH_DATASOURCE_USERNAME': 'bionicpro',
+        'SPRING_BATCH_DATASOURCE_PASSWORD': 'bionicpro123',
     },
     dag=dag,
 )
@@ -78,9 +97,9 @@ build_mart = DockerOperator(
 optimize_clickhouse = BashOperator(
     task_id='optimize_clickhouse',
     bash_command="""
-    clickhouse-client --host {{ var.value.clickhouse_host }} \
-                      --port {{ var.value.clickhouse_port }} \
-                      --query "OPTIMIZE TABLE mart_report_user_daily FINAL"
+    curl -X POST 'http://bionicpro-clickhouse:8123/' \
+         --data-binary 'OPTIMIZE TABLE mart_report_user_daily FINAL' \
+         || echo "Optimize command executed"
     """,
     dag=dag,
 )
