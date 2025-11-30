@@ -62,18 +62,18 @@ public class BatchConfiguration {
                         SELECT
                             t.user_id,
                             toDate(t.event_timestamp) AS report_date,
-                            groupArray(t.metric_name) AS metric_names,
-                            groupArray(count(*)) AS events_counts,
-                            groupArray(sum(t.metric_value)) AS value_sums,
-                            groupArray(avg(t.metric_value)) AS value_avgs,
-                            groupArray(min(t.metric_value)) AS value_mins,
-                            groupArray(max(t.metric_value)) AS value_maxs,
+                            groupArray(t.metric_name) AS metrics_name,
+                            groupArray(count(*)) AS metrics_events_count,
+                            groupArray(sum(t.metric_value)) AS metrics_value_sum,
+                            groupArray(avg(t.metric_value)) AS metrics_value_avg,
+                            groupArray(min(t.metric_value)) AS metrics_value_min,
+                            groupArray(max(t.metric_value)) AS metrics_value_max,
                             any(u.region) AS region,
                             any(u.prosthetic_model) AS prosthetic_model
                         FROM raw_telemetry t
                         LEFT JOIN raw_crm_users u ON t.user_id = u.user_id
                         WHERE toDate(t.event_timestamp) = ?
-                        GROUP BY t.user_id, report_date, t.metric_name
+                        GROUP BY t.user_id, report_date
                         """;
                     
                     int rowsAffected = clickhouseTemplate.update(sql, reportDate);
