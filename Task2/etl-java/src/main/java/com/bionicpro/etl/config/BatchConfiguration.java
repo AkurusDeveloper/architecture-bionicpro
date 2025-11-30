@@ -94,7 +94,8 @@ public class BatchConfiguration {
     }
 
     @Bean
-    public Step extractCrmStep(@Qualifier("clickhouseJdbcTemplate") JdbcTemplate clickhouseTemplate) {
+    public Step extractCrmStep(@Qualifier("clickhouseJdbcTemplate") JdbcTemplate clickhouseTemplate,
+                                @Qualifier("coreDbJdbcTemplate") JdbcTemplate coreDbTemplate) {
         return new StepBuilder("extractCrmStep", jobRepository)
                 .tasklet((contribution, chunkContext) -> {
                     
@@ -106,10 +107,47 @@ public class BatchConfiguration {
                     log.info("Starting CRM data extraction for date: {}", reportDate);
                     
                     try {
-                        List<CrmApiClient.CrmUser> crmUsers = crmApiClient.fetchUsersByDate(reportDate);
+                        List<CrmApiClient.CrmUser> crmUsers = null;
+                        
+                        try {
+                            crmUsers = crmApiClient.fetchUsersByDate(reportDate);
+                            log.info("Fetched {} users from CRM API", crmUsers != null ? crmUsers.size() : 0);
+                        } catch (Exception e) {
+                            log.warn("Failed to fetch from CRM API: {}. Trying PostgreSQL fallback...", e.getMessage());
+                            
+                            String fallbackSql = """
+                                SELECT 
+                                    user_id,
+                                    username,
+                                    email,
+                                    region,
+                                    prosthetic_model,
+                                    created_at::text as created_at
+                                FROM users
+                                WHERE DATE(created_at) <= ?::date
+                                ORDER BY created_at DESC
+                                """;
+                            
+                            List<java.util.Map<String, Object>> dbUsers = coreDbTemplate.queryForList(fallbackSql, reportDate);
+                            
+                            if (dbUsers != null && !dbUsers.isEmpty()) {
+                                crmUsers = dbUsers.stream()
+                                    .map(row -> new CrmApiClient.CrmUser(
+                                        (String) row.get("user_id"),
+                                        (String) row.get("username"),
+                                        (String) row.get("email"),
+                                        null,
+                                        (String) row.get("prosthetic_model"),
+                                        (String) row.get("region"),
+                                        row.get("created_at") != null ? row.get("created_at").toString() : null
+                                    ))
+                                    .collect(java.util.stream.Collectors.toList());
+                                log.info("Fetched {} users from PostgreSQL Core DB (fallback)", crmUsers.size());
+                            }
+                        }
                         
                         if (crmUsers == null || crmUsers.isEmpty()) {
-                            log.warn("No CRM users found for date: {}", reportDate);
+                            log.warn("No CRM users found for date: {} (neither from API nor DB)", reportDate);
                             return org.springframework.batch.repeat.RepeatStatus.FINISHED;
                         }
                         
@@ -237,9 +275,89 @@ public class BatchConfiguration {
                             .getOrDefault("date", java.time.LocalDate.now().toString())
                             .toString();
                     
-                    System.out.printf("✅ Extracting telemetry for date: %s%n", reportDate);
+                    log.info("Starting telemetry extraction for date: {}", reportDate);
                     
-                    System.out.println("✅ Telemetry extraction completed");
+                    try {
+                        String selectSql = """
+                            SELECT 
+                                event_id,
+                                user_id,
+                                event_type,
+                                metric_name,
+                                metric_value,
+                                event_timestamp,
+                                COALESCE(region, '') as region
+                            FROM telemetry_events
+                            WHERE DATE(event_timestamp) = ?::date
+                            ORDER BY event_timestamp
+                            """;
+                        
+                        List<java.util.Map<String, Object>> telemetryEvents = coreDbTemplate.queryForList(selectSql, reportDate);
+                        
+                        if (telemetryEvents == null || telemetryEvents.isEmpty()) {
+                            log.warn("No telemetry events found in Core DB for date: {}. Checking if data exists in ClickHouse...", reportDate);
+                            
+                            String checkClickHouseSql = """
+                                SELECT COUNT(*) as cnt
+                                FROM raw_telemetry
+                                WHERE toDate(event_timestamp) = ?
+                                """;
+                            
+                            Integer existingCount = clickhouseTemplate.queryForObject(checkClickHouseSql, Integer.class, reportDate);
+                            
+                            if (existingCount != null && existingCount > 0) {
+                                log.info("Found {} existing telemetry events in ClickHouse for date: {}", existingCount, reportDate);
+                                return org.springframework.batch.repeat.RepeatStatus.FINISHED;
+                            }
+                            
+                            log.warn("No telemetry events found for date: {} (neither in Core DB nor ClickHouse)", reportDate);
+                            return org.springframework.batch.repeat.RepeatStatus.FINISHED;
+                        }
+                        
+                        log.info("Fetched {} telemetry events from Core DB", telemetryEvents.size());
+                        
+                        String insertSql = """
+                            INSERT INTO raw_telemetry 
+                            (event_id, user_id, event_type, metric_name, metric_value, event_timestamp, region)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """;
+                        
+                        int insertedCount = 0;
+                        int batchSize = 100;
+                        
+                        for (int i = 0; i < telemetryEvents.size(); i += batchSize) {
+                            int endIndex = Math.min(i + batchSize, telemetryEvents.size());
+                            
+                            for (int j = i; j < endIndex; j++) {
+                                java.util.Map<String, Object> event = telemetryEvents.get(j);
+                                
+                                try {
+                                    clickhouseTemplate.update(insertSql,
+                                        event.get("event_id"),
+                                        event.get("user_id"),
+                                        event.get("event_type") != null ? event.get("event_type").toString() : "",
+                                        event.get("metric_name") != null ? event.get("metric_name").toString() : "",
+                                        event.get("metric_value") != null ? ((Number) event.get("metric_value")).doubleValue() : 0.0,
+                                        event.get("event_timestamp"),
+                                        event.get("region") != null ? event.get("region").toString() : ""
+                                    );
+                                    insertedCount++;
+                                } catch (Exception e) {
+                                    log.error("Error inserting telemetry event {}: {}", event.get("event_id"), e.getMessage());
+                                }
+                            }
+                            
+                            if (i % 500 == 0) {
+                                log.debug("Inserted {} / {} telemetry events", insertedCount, telemetryEvents.size());
+                            }
+                        }
+                        
+                        log.info("✅ Telemetry extraction completed. Inserted {} events into ClickHouse", insertedCount);
+                        
+                    } catch (Exception e) {
+                        log.error("Error during telemetry extraction: {}", e.getMessage(), e);
+                        throw new RuntimeException("Telemetry extraction failed", e);
+                    }
                     
                     return org.springframework.batch.repeat.RepeatStatus.FINISHED;
                 }, transactionManager)

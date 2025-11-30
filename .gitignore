@@ -1,3 +1,5 @@
 /postgres-keycloak-data
 2024__yandex-architecture-sso.code-workspace
 /Task2/reports-api/target/
+/Task2/ui-java/target/
+/Task2/etl-java/target/
