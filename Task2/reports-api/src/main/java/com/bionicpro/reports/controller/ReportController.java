@@ -7,7 +7,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -85,12 +84,16 @@ public class ReportController {
     @GetMapping("/download")
     public ResponseEntity<String> downloadReport(
             @AuthenticationPrincipal Jwt jwt,
-            @RequestParam String userId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo) {
         
-        log.info("User {} (JWT sub: {}) requested CSV download for userId {} from {} to {}", 
-            jwt.getClaim("preferred_username"), jwt.getSubject(), userId, dateFrom, dateTo);
+        String userId = jwt.getClaimAsString("preferred_username");
+        if (userId == null || userId.isEmpty()) {
+            userId = jwt.getSubject();
+        }
+        
+        log.info("User {} (JWT sub: {}) requested CSV download from {} to {}", 
+            userId, jwt.getSubject(), dateFrom, dateTo);
         
         ReportResponse report = reportService.getUserReport(userId, dateFrom, dateTo);
         String csvContent = CsvUtil.toCsv(report);

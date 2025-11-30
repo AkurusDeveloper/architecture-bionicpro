@@ -44,7 +44,9 @@ extract_crm = DockerOperator(
         'SPRING_BATCH_DATASOURCE_URL': 'jdbc:postgresql://postgres-core:5432/bionicpro_core',
         'SPRING_BATCH_DATASOURCE_USERNAME': 'bionicpro',
         'SPRING_BATCH_DATASOURCE_PASSWORD': 'bionicpro123',
-        'CRM_API_URL': 'http://postgres-core:5432',
+        'CRM_API_URL': 'http://crm-api:8081/api',
+        'CRM_API_USER': 'crm_user',
+        'CRM_API_PASSWORD': 'crm_pass',
     },
     dag=dag,
 )

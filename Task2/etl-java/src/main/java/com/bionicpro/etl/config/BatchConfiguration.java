@@ -1,6 +1,8 @@
 package com.bionicpro.etl.config;
 
+import com.bionicpro.etl.client.CrmApiClient;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -13,12 +15,18 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+
+@Slf4j
 @Configuration
 @RequiredArgsConstructor
 public class BatchConfiguration {
 
     private final JobRepository jobRepository;
     private final PlatformTransactionManager transactionManager;
+    private final CrmApiClient crmApiClient;
 
     @Bean
     public Job buildMartJob(Step buildMartStep) {
@@ -90,14 +98,120 @@ public class BatchConfiguration {
         return new StepBuilder("extractCrmStep", jobRepository)
                 .tasklet((contribution, chunkContext) -> {
                     
-                    System.out.println("✅ Extracting CRM data...");
+                    String reportDate = chunkContext.getStepContext()
+                            .getJobParameters()
+                            .getOrDefault("date", java.time.LocalDate.now().toString())
+                            .toString();
                     
-                    String sql = """
-                        INSERT INTO raw_crm_users (user_id, username, email, contract_number, prosthetic_model, region, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, now())
-                        """;
+                    log.info("Starting CRM data extraction for date: {}", reportDate);
                     
-                    System.out.println("✅ CRM extraction completed");
+                    try {
+                        List<CrmApiClient.CrmUser> crmUsers = crmApiClient.fetchUsersByDate(reportDate);
+                        
+                        if (crmUsers == null || crmUsers.isEmpty()) {
+                            log.warn("No CRM users found for date: {}", reportDate);
+                            return org.springframework.batch.repeat.RepeatStatus.FINISHED;
+                        }
+                        
+                        log.info("Fetched {} users from CRM", crmUsers.size());
+                        
+                        DateTimeFormatter[] formatters = {
+                            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+                            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),
+                            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS"),
+                            DateTimeFormatter.ISO_DATE_TIME,
+                            DateTimeFormatter.ISO_LOCAL_DATE_TIME
+                        };
+                        
+                        int batchSize = 100;
+                        int insertedCount = 0;
+                        int totalUsers = crmUsers.size();
+                        
+                        for (int i = 0; i < totalUsers; i += batchSize) {
+                            int endIndex = Math.min(i + batchSize, totalUsers);
+                            List<CrmApiClient.CrmUser> batch = crmUsers.subList(i, endIndex);
+                            
+                            StringBuilder valuesBuilder = new StringBuilder();
+                            java.util.List<Object> params = new java.util.ArrayList<>();
+                            
+                            for (CrmApiClient.CrmUser user : batch) {
+                                if (valuesBuilder.length() > 0) {
+                                    valuesBuilder.append(", ");
+                                }
+                                valuesBuilder.append("(?, ?, ?, ?, ?, ?, ?)");
+                                
+                                LocalDateTime createdAt = LocalDateTime.now();
+                                if (user.createdAt() != null && !user.createdAt().isEmpty()) {
+                                    for (DateTimeFormatter formatter : formatters) {
+                                        try {
+                                            createdAt = LocalDateTime.parse(user.createdAt(), formatter);
+                                            break;
+                                        } catch (Exception e) {
+                                        }
+                                    }
+                                }
+                                
+                                params.add(user.userId());
+                                params.add(user.username() != null ? user.username() : "");
+                                params.add(user.email() != null ? user.email() : "");
+                                params.add(user.contractNumber() != null ? user.contractNumber() : "");
+                                params.add(user.prostheticModel() != null ? user.prostheticModel() : "");
+                                params.add(user.region() != null ? user.region() : "");
+                                params.add(createdAt);
+                            }
+                            
+                            String insertSql = "INSERT INTO raw_crm_users " +
+                                "(user_id, username, email, contract_number, prosthetic_model, region, created_at) " +
+                                "VALUES " + valuesBuilder.toString();
+                            
+                            try {
+                                clickhouseTemplate.update(insertSql, params.toArray());
+                                insertedCount += batch.size();
+                                log.debug("Inserted batch of {} users (total: {}/{})", batch.size(), insertedCount, totalUsers);
+                            } catch (Exception e) {
+                                log.error("Error inserting batch starting at index {}: {}", i, e.getMessage());
+                                for (CrmApiClient.CrmUser user : batch) {
+                                    try {
+                                        LocalDateTime createdAt = LocalDateTime.now();
+                                        if (user.createdAt() != null && !user.createdAt().isEmpty()) {
+                                            for (DateTimeFormatter formatter : formatters) {
+                                                try {
+                                                    createdAt = LocalDateTime.parse(user.createdAt(), formatter);
+                                                    break;
+                                                } catch (Exception ex) {
+                                                }
+                                            }
+                                        }
+                                        
+                                        String singleInsertSql = """
+                                            INSERT INTO raw_crm_users 
+                                            (user_id, username, email, contract_number, prosthetic_model, region, created_at)
+                                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                                            """;
+                                        
+                                        clickhouseTemplate.update(singleInsertSql,
+                                            user.userId(),
+                                            user.username() != null ? user.username() : "",
+                                            user.email() != null ? user.email() : "",
+                                            user.contractNumber() != null ? user.contractNumber() : "",
+                                            user.prostheticModel() != null ? user.prostheticModel() : "",
+                                            user.region() != null ? user.region() : "",
+                                            createdAt
+                                        );
+                                        insertedCount++;
+                                    } catch (Exception ex) {
+                                        log.error("Error inserting user {}: {}", user.userId(), ex.getMessage());
+                                    }
+                                }
+                            }
+                        }
+                        
+                        log.info("✅ CRM extraction completed. Inserted {} users into ClickHouse", insertedCount);
+                        
+                    } catch (Exception e) {
+                        log.error("Error during CRM extraction: {}", e.getMessage(), e);
+                        throw new RuntimeException("CRM extraction failed", e);
+                    }
                     
                     return org.springframework.batch.repeat.RepeatStatus.FINISHED;
                 }, transactionManager)

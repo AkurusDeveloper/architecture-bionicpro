@@ -39,7 +39,7 @@ public class ReportsApiService {
     }
 
     public String getMyReportCsv(String accessToken, LocalDate dateFrom, LocalDate dateTo) {
-        log.debug("Calling Reports API: GET /reports/me (CSV format)");
+        log.debug("Calling Reports API: GET /reports/download");
         
         WebClient webClient = webClientBuilder
             .baseUrl(apiBaseUrl)
@@ -48,10 +48,9 @@ public class ReportsApiService {
         
         return webClient.get()
             .uri(uriBuilder -> uriBuilder
-                .path("/reports/me")
+                .path("/reports/download")
                 .queryParam("dateFrom", dateFrom.toString())
                 .queryParam("dateTo", dateTo.toString())
-                .queryParam("format", "csv")
                 .build())
             .retrieve()
             .bodyToMono(String.class)

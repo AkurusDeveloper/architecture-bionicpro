@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Flux;
 
 import java.util.List;
 
@@ -44,20 +43,34 @@ public class CrmApiClient {
     public List<CrmUser> fetchUsersByDate(String date) {
         log.info("Fetching users from CRM for date: {}", date);
 
-        WebClient webClient = webClientBuilder
-                .baseUrl(crmApiBaseUrl)
-                .defaultHeaders(headers -> headers.setBasicAuth(username, password))
-                .build();
+        try {
+            WebClient webClient = webClientBuilder
+                    .baseUrl(crmApiBaseUrl)
+                    .defaultHeaders(headers -> headers.setBasicAuth(username, password))
+                    .build();
 
-        return webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/users")
-                        .queryParam("created_date", date)
-                        .build())
-                .retrieve()
-                .bodyToFlux(CrmUser.class)
-                .collectList()
-                .block();
+            List<CrmUser> users = webClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/users")
+                            .queryParam("created_date", date)
+                            .build())
+                    .retrieve()
+                    .bodyToFlux(CrmUser.class)
+                    .collectList()
+                    .block();
+
+            if (users == null) {
+                log.warn("CRM API returned null for date: {}", date);
+                return java.util.Collections.emptyList();
+            }
+
+            log.info("Successfully fetched {} users from CRM for date: {}", users.size(), date);
+            return users;
+
+        } catch (Exception e) {
+            log.error("Error fetching users from CRM for date {}: {}", date, e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch users from CRM: " + e.getMessage(), e);
+        }
     }
 
     public record CrmUser(
