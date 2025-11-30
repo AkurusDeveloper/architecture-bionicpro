@@ -1,0 +1,76 @@
+@startuml
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_LEFT_RIGHT()
+
+Person_Ext(bankAF, "АФ-системы банков/ПС", "Отправляют события и запрашивают скоринг/справки")
+Person_Ext(regAnalyst, "Аналитик/регулятор", "Использует отчёты и UI ЦАФ")
+Person_Ext(cafOps, "Оператор ЦАФ", "Следит за состоянием, настраивает правила")
+
+System_Boundary(caf, "ЦАФ Платформа") {
+
+  Container(gw, "API Gateway & Security", "Reverse proxy / mTLS / Auth / Rate limiting", "Единая точка входа: аутентификация, авторизация, квоты, аудит")
+  Container(tokenSvc, "Сервис токенизации K1", "Service", "Псевдонимизация и нормализация идентификаторов (K1)")
+  Container(kafka, "Streaming Bus", "Kafka / AMQP", "Внутренняя шина событий ЦАФ (транзакции, сессии, кейсы, вердикты)")
+
+  ' ===== Встроенная платформа AFD как ядро realtime-аналитики =====
+  System_Boundary(afd, "Платформа AFD (внутри ЦАФ)") {
+
+    Container(afdEea, "afd-eea", "Extended Rule Engine Async", "Приём событий от процессингов/ДБО, обогащение, маршрутизация, формирование ответа")
+    Container(afdAaa, "afd-aaa", "Advanced Adaptive Authentication", "ML-скоринг, локальные поведенческие профили (Ignite), предикторы, SFN-анализ")
+    Container(afdAaap, "afd-aaap", "AAA Policy", "Бизнес-правила и политики, A/B тесты, Groovy/SQL правила")
+    Container(afdDbSaver, "afd-db-saver", "DB Saver / Event Storage", "Асинхронное сохранение событий/профилей, экспорт в БД и Kafka (Chronicle Queue, приоритеты, failover)")
+    Container(afdUi, "afd-ui", "AFD UI", "Кейс-менеджмент, управление правилами, отчёты для операторов AFD")
+  }
+
+  ' ===== Глобальный слой ЦАФ поверх AFD =====
+  Container(profileStore, "CAF Profile & Feature Store", "KV / Column DB", "Межбанковские профили и фичи по global K1 (агрегация поверх событий/результатов AFD и других источников)")
+  Container(graphStore, "CAF Graph Store", "Graph DB / KV", "Граф сущностей (клиенты, счета, устройства, IP) в разрезе всех участников")
+  Container(graphAnalytics, "CAF Graph Analytics", "Batch/Stream jobs", "Кластеры (Louvain/Label Prop), PageRank, Betweenness, графовые фичи")
+  Container(dwh, "CAF DWH / Data Lake", "Column DB / Object Storage", "Историческое хранилище ЦАФ, межбанковская аналитика и витрины")
+  Container(reporting, "CAF Reporting & BI API", "Service", "Отчётность для участников и регулятора, глобальные дашборды")
+  Container(ui, "CAF Web Console", "Web UI", "Глобальный UI ЦАФ: отчёты по рынку, графы, конфигурация ЦАФ")
+  Container(mon, "Monitoring & Observability", "Prometheus / ELK / etc.", "Метрики, логи, трассировки, алерты по всей платформе")
+}
+
+' Внешний трафик в ЦАФ
+Rel(bankAF, gw, "Запросы скоринга,\nонлайн-справки, отправка событий", "mTLS gRPC/HTTP2, Kafka/AMQP")
+
+' Токенизация
+Rel(gw, tokenSvc, "Нормализация/токенизация K1\n(если банк шлёт сырые идентификаторы)", "gRPC/HTTP")
+Rel(tokenSvc, afdEea, "Передача уже токенизированных\nK1/K2 в AFD", "internal call")
+
+' Взаимодействие GW с AFD
+Rel(gw, afdEea, "Проксирует онлайн-запросы\nскоринга и события", "gRPC/HTTP, ISO8583/TCP")
+
+' Внутри AFD
+Rel(afdEea, afdAaa, "Передаёт обогащённые события\nна ML-скоринг и локальные профили AAA", "async/sync RPC")
+Rel(afdAaa, afdAaap, "Передаёт события и скоринг\nв движок правил", "RPC")
+Rel(afdAaap, afdAaa, "Возвращает политику/решение\n(ALLOW/DENY/CHALLENGE)", "RPC result")
+Rel(afdAaa, afdDbSaver, "Отправляет события, профили и результаты\nв подсистему персистентности", "async")
+
+' afd-db-saver → шина ЦАФ
+Rel(afdDbSaver, kafka, "Публикует нормализованные события,\nрешения, кейсы в шину ЦАФ (EVENT/RESOLUTION/RULES/...)", "topics")
+
+' Глобальный слой ЦАФ поверх AFD
+Rel(kafka, profileStore, "Стрим событий и решений\nдля расчёта глобальных профилей по K1", "stream")
+Rel(kafka, graphStore, "Стрим событий для построения\nрёбер/вершин межбанковского графа", "stream")
+
+Rel(graphAnalytics, graphStore, "Читает граф, считает\nкластеры и центральности", "batch")
+Rel(graphAnalytics, profileStore, "Записывает графовые фичи\nдля entity-risk и глобального скоринга", "write")
+
+Rel(profileStore, dwh, "Сливает агрегаты и фичи\nв аналитические витрины", "batch")
+Rel(kafka, dwh, "Загрузка сырых событий/результатов\nв DWH ЦАФ (ETL/stream)", "batch/stream")
+
+Rel(reporting, dwh, "Читает глобальные витрины\nдля отчётности", "read")
+Rel(regAnalyst, ui, "Смотрит глобальные отчёты и графы", "HTTPS")
+Rel(ui, reporting, "Запрашивает отчёты,\nвыгрузки, drill-down", "HTTPS")
+
+Rel(afdUi, afdAaap, "Управление правилами,\nпросмотр статистики", "HTTP")
+Rel(afdUi, afdDbSaver, "Просмотр кейсов и событий\n(через БД/хранилища AFD)", "SQL/API")
+
+' Мониторинг
+Rel(caf, mon, "Метрики, логи,\nтрейсы из сервисов ЦАФ и AFD", "metrics/logs")
+Rel(mon, cafOps, "Алерты, дашборды,\nтехнический мониторинг", "UI/Alerting")
+
+@enduml

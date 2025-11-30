@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: bionicpro-etl
+
+  batch:
+    job:
+      enabled: false
+    jdbc:
+      initialize-schema: always
+      table-prefix: BATCH_
+    datasource:
+      # Использовать PostgreSQL для метаданных Spring Batch
+      url: ${SPRING_BATCH_DATASOURCE_URL:jdbc:postgresql://postgres-core:5432/bionicpro_core}
+      username: ${SPRING_BATCH_DATASOURCE_USERNAME:bionicpro}
+      password: ${SPRING_BATCH_DATASOURCE_PASSWORD:bionicpro123}
+      driver-class-name: org.postgresql.Driver
+
+  datasource:
+    core-db:
+      url: ${SPRING_DATASOURCE_COREDB_URL:jdbc:postgresql://postgres-core:5432/bionicpro_core}
+      username: ${SPRING_DATASOURCE_COREDB_USERNAME:bionicpro}
+      password: ${SPRING_DATASOURCE_COREDB_PASSWORD:bionicpro123}
+      driver-class-name: org.postgresql.Driver
+    
+    clickhouse:
+      url: ${SPRING_DATASOURCE_CLICKHOUSE_URL:jdbc:clickhouse://bionicpro-clickhouse:8123/default}
+      username: ${SPRING_DATASOURCE_CLICKHOUSE_USERNAME:default}
+      password: ${SPRING_DATASOURCE_CLICKHOUSE_PASSWORD:}
+      driver-class-name: com.clickhouse.jdbc.ClickHouseDriver
+
+crm:
+  api:
+    base-url: ${CRM_API_URL:http://localhost:8081/api}
+    username: ${CRM_API_USER:crm_user}
+    password: ${CRM_API_PASSWORD:crm_pass}
+    timeout-seconds: 30
+
+etl:
+  batch-size: 1000
+  chunk-size: 100
+  max-retries: 3
+
+logging:
+  level:
+    root: INFO
+    com.bionicpro: DEBUG
+    org.springframework.batch: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+
+
